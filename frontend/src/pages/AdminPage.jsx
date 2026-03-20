@@ -103,11 +103,22 @@ const AdminPage = () => {
     navigate('/');
   };
 
+  const handleManualSave = async () => {
+    await saveAuctionPlayers(playersBySet);
+    alert("Players successfully saved to database!");
+  };
+
   return (
-    <div className="landing-wrapper" style={{ flexDirection: 'column', padding: '1rem', minHeight: '100vh', display: 'block' }}>
-      <div className="glass-card admin-card" style={{ margin: '0 auto' }}>
-        <h1 className="title" style={{ marginBottom: '1rem' }}>Admin Dashboard</h1>
-        <p className="subtitle" style={{ fontSize: '1rem', marginBottom: '2rem' }}>Manage Players & Sets</p>
+    <div className="landing-wrapper admin-wrapper">
+      <div className="glass-card admin-card">
+        
+        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+           <h1 className="title admin-title">Admin Dashboard</h1>
+           <button className="create-room-btn" style={{width: 'auto', padding: '0.5rem 1rem', fontSize: '1rem', backgroundColor: '#3b82f6'}} onClick={handleManualSave}>
+             Save Players
+           </button>
+        </div>
+        <h2 className="subtitle">Manage Players & Sets</h2>
 
         <div className="sets-container">
           {setsData.map((setObj, index) => {
