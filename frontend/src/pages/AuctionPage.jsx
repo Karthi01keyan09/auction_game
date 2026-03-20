@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { getTeamById, teamsList } from '../utils/constants';
+import { getRoom, getAuctionPlayers, getAuctionState, saveAuctionState } from '../utils/api';
 
 const parseBasePrice = (str) => {
   if (!str) return 0;
@@ -43,7 +44,7 @@ const AuctionPage = () => {
     isFinished: false,
     isPaused: false,
     pausedTimeLeft: 0,
-    notification: null  // { type: 'sold'|'unsold', playerName, teamName, teamColor } or null
+    notification: null
   });
 
   const [timeLeft, setTimeLeft] = useState(15);
@@ -53,43 +54,86 @@ const AuctionPage = () => {
 
   const [expandedTeamId, setExpandedTeamId] = useState(null);
 
-  // Initial Sync from Room and Admin
+  // Initial Sync from Room and Admin (API + fallback)
   useEffect(() => {
-    const pData = localStorage.getItem(`room_${roomId}`);
-    if (pData) setParticipants(JSON.parse(pData).participants);
-
-    const apData = localStorage.getItem('auctionPlayers');
-    if (apData) {
-      const parsed = JSON.parse(apData);
-      const order = ['marquee', 'set1', 'set2', 'set3', 'set4'];
-      let flat = [];
-      order.forEach(s => flat = [...flat, ...(parsed[s] || [])]);
-      setUnauctionedList(flat);
-      
-      // Init Host State if it doesn't exist
-      const existingSync = localStorage.getItem(`auctionSync_${roomId}`);
-      if (!existingSync && flat.length > 0) {
-        const initSt = {
-          currentPlayerIdx: 0,
-          currentBidLakhs: parseBasePrice(flat[0].basePrice),
-          currentBidderId: '',
-          expirationTime: Date.now() + 15000,
-          timerDuration: 15,
-          purchasedLog: [],
-          isFinished: false,
-          isPaused: false,
-          pausedTimeLeft: 0,
-          notification: null
-        };
-        localStorage.setItem(`auctionSync_${roomId}`, JSON.stringify(initSt));
-        setAuctionState(initSt);
-      } else if (existingSync) {
-        setAuctionState(JSON.parse(existingSync));
+    const fetchInitialData = async () => {
+      // 1. Fetch Room Participants
+      const apiRoom = await getRoom(roomId);
+      if (apiRoom && apiRoom.participants) {
+        setParticipants(apiRoom.participants);
+      } else {
+        const pData = localStorage.getItem(`room_${roomId}`);
+        if (pData) setParticipants(JSON.parse(pData).participants);
       }
-    }
+
+      // 2. Fetch Auction Players
+      let flat = [];
+      const apiPlayers = await getAuctionPlayers();
+      if (apiPlayers && apiPlayers.marquee) {
+        const order = ['marquee', 'set1', 'set2', 'set3', 'set4'];
+        order.forEach(s => flat = [...flat, ...(apiPlayers[s] || [])]);
+      } else {
+        const apData = localStorage.getItem('auctionPlayers');
+        if (apData) {
+          const parsed = JSON.parse(apData);
+          const order = ['marquee', 'set1', 'set2', 'set3', 'set4'];
+          order.forEach(s => flat = [...flat, ...(parsed[s] || [])]);
+        }
+      }
+      setUnauctionedList(flat);
+
+      // 3. Init or Fetch Auction State
+      const apiState = await getAuctionState(roomId);
+      if (apiState && Object.keys(apiState).length > 0) {
+        setAuctionState(apiState);
+      } else {
+        const existingSync = localStorage.getItem(`auctionSync_${roomId}`);
+        if (existingSync) {
+          setAuctionState(JSON.parse(existingSync));
+        } else if (flat.length > 0) {
+          const initSt = {
+            currentPlayerIdx: 0,
+            currentBidLakhs: parseBasePrice(flat[0].basePrice),
+            currentBidderId: '',
+            expirationTime: Date.now() + 15000,
+            timerDuration: 15,
+            purchasedLog: [],
+            isFinished: false,
+            isPaused: false,
+            pausedTimeLeft: 0,
+            notification: null
+          };
+          localStorage.setItem(`auctionSync_${roomId}`, JSON.stringify(initSt));
+          saveAuctionState(roomId, initSt);
+          setAuctionState(initSt);
+        }
+      }
+    };
+
+    fetchInitialData();
   }, [roomId]);
 
-  // Sync state across tabs
+  // Poll for Auction State updates from API every 1.5 seconds
+  useEffect(() => {
+    const pollState = async () => {
+      const apiState = await getAuctionState(roomId);
+      if (apiState && Object.keys(apiState).length > 0) {
+        // Only update if expiration timer has changed or other major state change
+        // To avoid jitter, we update local state securely
+        setAuctionState(prevState => {
+           // We might be slightly out of sync on timers, so trust the API
+           // We could optimize by comparing timestamps
+           return { ...prevState, ...apiState };
+        });
+        localStorage.setItem(`auctionSync_${roomId}`, JSON.stringify(apiState));
+      }
+    };
+
+    const interval = setInterval(pollState, 1500);
+    return () => clearInterval(interval);
+  }, [roomId]);
+
+  // Sync state across tabs within same device
   useEffect(() => {
     const handleStorage = (e) => {
       if (e.key === `auctionSync_${roomId}`) {
@@ -100,11 +144,12 @@ const AuctionPage = () => {
     return () => window.removeEventListener('storage', handleStorage);
   }, [roomId]);
 
-  // Helper to publish state changes immediately to all tabs
-  const updateSyncState = (newStateUpdates) => {
+  // Helper to publish state changes immediately to all tabs & API
+  const updateSyncState = async (newStateUpdates) => {
     const merged = { ...auctionState, ...newStateUpdates };
     setAuctionState(merged);
     localStorage.setItem(`auctionSync_${roomId}`, JSON.stringify(merged));
+    await saveAuctionState(roomId, merged);
   };
 
   const beep = () => {
@@ -280,7 +325,7 @@ const AuctionPage = () => {
       }, delay);
       return () => clearTimeout(timer);
     }
-  }, [auctionState.isFinished, auctionState.notification]);
+  }, [auctionState.isFinished, auctionState.notification, navigate, roomId, participants, myId, isHost]);
 
   if (unauctionedList.length === 0) return <div className="landing-wrapper"><div className="glass-card"><h2 className="title">No players in DB</h2></div></div>;
 
@@ -335,10 +380,12 @@ const AuctionPage = () => {
             <div className="timer-box">
               {isHost ? (
                   <>
-                    <select className="timer-select" value={auctionState.timerDuration} onChange={(e) => handleTimerSelect(Number(e.target.value))} disabled={auctionState.isPaused || timeLeft > 0 && timeLeft < auctionState.timerDuration}>
+                    <select className="timer-select" value={auctionState.timerDuration} onChange={(e) => handleTimerSelect(Number(e.target.value))} disabled={auctionState.isPaused || (timeLeft > 0 && timeLeft < auctionState.timerDuration)}>
                       <option value={5}>5s</option>
                       <option value={10}>10s</option>
                       <option value={15}>15s</option>
+                      <option value={20}>20s</option>
+                      <option value={30}>30s</option>
                     </select>
                     {!auctionState.isPaused ? (
                         <button className="timer-btn stop" onClick={handlePause} title="Pause">॥</button>

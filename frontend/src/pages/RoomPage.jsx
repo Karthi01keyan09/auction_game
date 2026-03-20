@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { teamsList, getTeamById } from '../utils/constants';
+import { getRoom, saveRoom, joinRoom as apiJoinRoom, getAuctionStarted, setAuctionStarted } from '../utils/api';
 
 const RoomPage = () => {
   const { roomId } = useParams();
@@ -16,28 +17,42 @@ const RoomPage = () => {
 
   const navigate = useNavigate();
 
+  // Fetch room data from API first, then localStorage
+  const syncRoom = useCallback(async () => {
+    // Try API first
+    const apiData = await getRoom(roomId);
+    if (apiData && apiData.participants) {
+      setParticipants(apiData.participants);
+      // Also update localStorage for cross-tab sync
+      localStorage.setItem(`room_${roomId}`, JSON.stringify(apiData));
+      return;
+    }
+    // Fallback to localStorage
+    const data = localStorage.getItem(`room_${roomId}`);
+    if (data) {
+      setParticipants(JSON.parse(data).participants);
+    }
+  }, [roomId]);
+
   useEffect(() => {
-    const roomKey = `room_${roomId}`;
-    
-    // Sync room from local storage
-    const syncRoom = () => {
-      const data = localStorage.getItem(roomKey);
-      if (data) {
-        setParticipants(JSON.parse(data).participants);
-      }
-    };
-    
     syncRoom();
     
-    // Listen to storage changes across tabs
+    // Poll API every 3 seconds for participant updates from other devices
+    const pollInterval = setInterval(syncRoom, 3000);
+
+    // Also listen to localStorage changes for same-device tab sync
     const handleStorageChange = (e) => {
-      if (e.key === roomKey) {
-        syncRoom();
+      if (e.key === `room_${roomId}`) {
+        const data = localStorage.getItem(`room_${roomId}`);
+        if (data) setParticipants(JSON.parse(data).participants);
       }
     };
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, [roomId]);
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [roomId, syncRoom]);
 
   const copyToClipboard = async () => {
     try {
@@ -53,54 +68,82 @@ const RoomPage = () => {
     }
   };
 
+  // Check if auction has started (API + localStorage)
   useEffect(() => {
+    const checkStarted = async () => {
+      const apiRes = await getAuctionStarted(roomId);
+      if (apiRes && apiRes.started) {
+        navigate(`/auction/${roomId}`, { state: { myId } });
+        return;
+      }
+      if (localStorage.getItem(`auctionStarted_${roomId}`) === 'true') {
+        navigate(`/auction/${roomId}`, { state: { myId } });
+      }
+    };
+    checkStarted();
+
+    // Poll for auction start every 2 seconds
+    const pollStart = setInterval(checkStarted, 2000);
+
     const handleAuctionStartSync = (e) => {
       if (e.key === `auctionStarted_${roomId}` && e.newValue === 'true') {
         navigate(`/auction/${roomId}`, { state: { myId } });
       }
     };
     window.addEventListener('storage', handleAuctionStartSync);
-    
-    // Check if it's already started
-    if (localStorage.getItem(`auctionStarted_${roomId}`) === 'true') {
-       navigate(`/auction/${roomId}`, { state: { myId } });
-    }
 
-    return () => window.removeEventListener('storage', handleAuctionStartSync);
+    return () => {
+      clearInterval(pollStart);
+      window.removeEventListener('storage', handleAuctionStartSync);
+    };
   }, [roomId, navigate, myId]);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     localStorage.setItem(`auctionStarted_${roomId}`, 'true');
-    // Ensure the host itself navigates
+    await setAuctionStarted(roomId, true);
     navigate(`/auction/${roomId}`, { state: { myId } });
   };
 
-  const handleJoinRoom = () => {
+  const handleJoinRoom = async () => {
     if (!joinName) return alert("Please enter your name");
     if (!joinTeam) return alert("Please pick a team");
     
     const roomKey = `room_${roomId}`;
-    const data = localStorage.getItem(roomKey);
-    let currentPart = data ? JSON.parse(data).participants : [];
     
-    if(currentPart.some(p => p.teamId === joinTeam)) {
-        return alert("This team was already taken!");
+    // Get current participants from API or localStorage
+    let currentPart = [];
+    const apiData = await getRoom(roomId);
+    if (apiData && apiData.participants) {
+      currentPart = apiData.participants;
+    } else {
+      const data = localStorage.getItem(roomKey);
+      currentPart = data ? JSON.parse(data).participants : [];
+    }
+    
+    if (currentPart.some(p => p.teamId === joinTeam)) {
+      return alert("This team was already taken!");
     }
     
     const me = { 
-        id: Date.now().toString(), 
-        name: joinName, 
-        teamId: joinTeam, 
-        isHost: currentPart.length === 0 // Become host if no one is in room
+      id: Date.now().toString(), 
+      name: joinName, 
+      teamId: joinTeam, 
+      isHost: currentPart.length === 0
     };
     
-    currentPart.push(me);
+    // Try to join via API
+    const apiResult = await apiJoinRoom(roomId, me);
+    if (apiResult && apiResult.participants) {
+      currentPart = apiResult.participants;
+    } else {
+      // Fallback: add locally
+      currentPart.push(me);
+    }
+
     localStorage.setItem(roomKey, JSON.stringify({ participants: currentPart }));
-    
     setParticipants(currentPart);
     setMyId(me.id);
     
-    // Trigger a storage event manually for same tab if needed (though local storage sets usually trigger cross-tab)
     window.dispatchEvent(new Event('storage'));
   };
 

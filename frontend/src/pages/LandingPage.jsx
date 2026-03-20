@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { teamsList } from '../utils/constants';
+import { saveRoom } from '../utils/api';
 
 const LandingPage = () => {
   const [playerName, setPlayerName] = useState('');
@@ -29,6 +30,9 @@ const LandingPage = () => {
       participants: [{ id: Date.now().toString(), name: playerName, teamId: selectedTeam, isHost: true }]
     };
     localStorage.setItem(`room_${roomId}`, JSON.stringify(newRoom));
+
+    // Sync to backend API for cross-device access
+    saveRoom(roomId, newRoom.participants);
 
     navigate(`/room/${roomId}`, { state: { myId: newRoom.participants[0].id } });
   };

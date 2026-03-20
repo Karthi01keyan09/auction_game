@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { saveAuctionPlayers } from '../utils/api';
 
 const setsData = [
   { id: 'marquee', name: 'Marquee Set', limit: 25, basePrice: '2 Cr' },
@@ -35,6 +36,8 @@ const AdminPage = () => {
 
   useEffect(() => {
     localStorage.setItem('auctionPlayers', JSON.stringify(playersBySet));
+    // Sync to backend API for cross-device access
+    saveAuctionPlayers(playersBySet);
   }, [playersBySet]);
 
   const toggleSet = (setId) => {
@@ -94,8 +97,10 @@ const AdminPage = () => {
   };
 
   const handleBegin = () => {
+    // Ensure API has the latest player data
+    saveAuctionPlayers(playersBySet);
     alert("Auction parameters saved! Ready to begin.");
-    navigate('/'); // Or transition to actual auction page when built
+    navigate('/');
   };
 
   return (
