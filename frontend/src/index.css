@@ -1197,3 +1197,358 @@ body {
   100% { left: 110%; }
 }
 
+/* ================================================================
+   MOBILE RESPONSIVE STYLES
+   These ONLY activate on smaller screens. Desktop is unaffected.
+   ================================================================ */
+
+@media (max-width: 768px) {
+
+  /* ── Global & Landing ─────────────────────────────── */
+  .glass-card {
+    padding: 1.5rem 1.2rem;
+    border-radius: 16px;
+    max-width: 100%;
+  }
+
+  .title {
+    font-size: 1.6rem;
+    margin-bottom: 1.2rem;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+    margin-bottom: 1rem;
+  }
+
+  .name-input {
+    width: 90%;
+    font-size: 1rem;
+    padding: 0.7rem 1rem;
+  }
+
+  .create-room-btn {
+    width: 95%;
+    font-size: 1.05rem;
+    padding: 0.85rem 1.5rem;
+  }
+
+  .admin-login-section {
+    width: 95%;
+  }
+
+  .landing-wrapper {
+    padding: 1rem;
+  }
+
+  .modal-content {
+    max-width: 90vw;
+    padding: 1.5rem;
+  }
+
+  /* ── Room Page ────────────────────────────────────── */
+  .room-card {
+    padding: 1.5rem 1rem;
+  }
+
+  .room-title {
+    font-size: 1.4rem;
+  }
+
+  .link-share-box {
+    flex-direction: column;
+  }
+
+  .link-input-small {
+    font-size: 0.8rem;
+  }
+
+  .copy-btn-small {
+    padding: 0.5rem 1rem;
+  }
+
+  .participants-title {
+    font-size: 1.5rem;
+  }
+
+  .participant-card {
+    padding: 1rem 0.5rem;
+  }
+
+  .participant-logo-box {
+    width: 55px;
+    height: 55px;
+  }
+
+  .player-name {
+    font-size: 0.95rem;
+  }
+
+  /* ── Admin Page ───────────────────────────────────── */
+  .admin-card {
+    padding: 1.2rem;
+  }
+
+  .set-bar {
+    padding: 0.8rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .set-info {
+    gap: 0.5rem;
+  }
+
+  .set-name {
+    font-size: 1rem;
+  }
+
+  .players-list-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .players-table {
+    font-size: 0.8rem;
+    min-width: 400px;
+  }
+
+  .players-table th,
+  .players-table td {
+    padding: 0.4rem 0.3rem;
+  }
+
+  /* ── Auction Page ─────────────────────────────────── */
+  .auction-page-wrapper {
+    padding: 0.5rem;
+  }
+
+  .top-bid-section {
+    padding: 1rem;
+  }
+
+  .player-header {
+    flex-direction: column;
+    gap: 0.8rem;
+    align-items: flex-start;
+  }
+
+  .cricketer-name {
+    font-size: 1.4rem;
+    letter-spacing: 1px;
+  }
+
+  .timer-box {
+    width: 100%;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .timer-display {
+    font-size: 1.2rem;
+    min-width: 40px;
+  }
+
+  .player-profile-row {
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+  }
+
+  .player-placeholder-img {
+    width: 120px;
+    height: 120px;
+    font-size: 2.5rem;
+  }
+
+  .player-details {
+    width: 100%;
+  }
+
+  .detail-line {
+    font-size: 1rem;
+  }
+
+  .bid-controls {
+    padding: 1rem;
+  }
+
+  .control-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .control-label {
+    width: 100%;
+    font-size: 0.95rem;
+  }
+
+  .bid-amount-box {
+    width: 100%;
+    font-size: 1.3rem;
+    height: 45px;
+  }
+
+  .bidder-select {
+    width: 100%;
+  }
+
+  .purse-display {
+    width: 100%;
+  }
+
+  .bottom-teams-section {
+    padding: 0.8rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .teams-dashboard-table {
+    min-width: 550px;
+    font-size: 0.85rem;
+  }
+
+  .teams-dashboard-table th,
+  .teams-dashboard-table td {
+    padding: 0.6rem 0.5rem;
+  }
+
+  .expanded-details-card {
+    margin: 0 0.5rem 0.5rem 0.5rem;
+    padding: 1rem;
+  }
+
+  /* ── Notification Overlay ─────────────────────────── */
+  .notif-card {
+    padding: 2rem 1.5rem;
+    border-radius: 16px;
+    margin: 0 1rem;
+  }
+
+  .notif-icon {
+    font-size: 3rem;
+  }
+
+  .notif-player {
+    font-size: 1.5rem;
+    letter-spacing: 1px;
+  }
+
+  .notif-label {
+    font-size: 0.85rem;
+    letter-spacing: 2px;
+  }
+
+  .notif-team {
+    font-size: 2rem;
+  }
+
+  .notif-amount {
+    font-size: 1.2rem;
+  }
+
+  /* ── Auction Complete Page ────────────────────────── */
+  .complete-team-header {
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    align-items: flex-start;
+  }
+
+  .complete-team-header > div:last-child {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .complete-team-details {
+    grid-template-columns: 1fr;
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .winner-title {
+    font-size: 1.5rem;
+  }
+
+  .winner-first-card {
+    padding: 1.5rem 1rem;
+  }
+
+  .winner-first-card h2 {
+    font-size: 1.5rem !important;
+  }
+
+  .winner-runner-row {
+    grid-template-columns: 1fr;
+  }
+
+  .winner-runner-card {
+    padding: 1rem;
+  }
+
+  .winner-score {
+    font-size: 1.2rem;
+  }
+
+  .winner-medal {
+    font-size: 2rem;
+  }
+
+  .ai-loading-bar {
+    width: 200px;
+  }
+
+  .ai-analysis-box,
+  .disqualified-section {
+    padding: 0.8rem 1rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* ── Extra small phones (≤ 480px) ────────────────── */
+@media (max-width: 480px) {
+  .glass-card {
+    padding: 1rem 0.8rem;
+  }
+
+  .title {
+    font-size: 1.35rem;
+  }
+
+  .team-logo-box {
+    width: 55px;
+    height: 55px;
+    padding: 8px;
+  }
+
+  .pick-btn {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.8rem;
+  }
+
+  .cricketer-name {
+    font-size: 1.2rem;
+  }
+
+  .player-placeholder-img {
+    width: 100px;
+    height: 100px;
+    font-size: 2rem;
+  }
+
+  .timer-btn {
+    width: 30px;
+    height: 30px;
+    font-size: 0.85rem;
+  }
+
+  .notif-player {
+    font-size: 1.2rem;
+  }
+
+  .notif-team {
+    font-size: 1.5rem;
+  }
+}
+
