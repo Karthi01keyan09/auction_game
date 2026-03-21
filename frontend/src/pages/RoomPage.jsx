@@ -7,8 +7,11 @@ const RoomPage = () => {
   const { roomId } = useParams();
   const location = useLocation();
   
-  const [participants, setParticipants] = useState([]);
-  const [myId, setMyId] = useState(location.state?.myId || null);
+  const [participants, setParticipants] = useState(() => {
+    const saved = localStorage.getItem(`room_${roomId}`);
+    return saved ? JSON.parse(saved).participants : [];
+  });
+  const [myId, setMyId] = useState(location.state?.myId || localStorage.getItem(`myId_${roomId}`) || null);
   
   const [joinName, setJoinName] = useState('');
   const [joinTeam, setJoinTeam] = useState(null);
@@ -141,6 +144,7 @@ const RoomPage = () => {
     }
 
     localStorage.setItem(roomKey, JSON.stringify({ participants: currentPart }));
+    localStorage.setItem(`myId_${roomId}`, me.id);
     setParticipants(currentPart);
     setMyId(me.id);
     

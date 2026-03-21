@@ -34,7 +34,10 @@ const LandingPage = () => {
     // Sync to backend API for cross-device access
     saveRoom(roomId, newRoom.participants);
 
-    navigate(`/room/${roomId}`, { state: { myId: newRoom.participants[0].id } });
+    const myNewId = newRoom.participants[0].id;
+    localStorage.setItem(`myId_${roomId}`, myNewId);
+
+    navigate(`/room/${roomId}`, { state: { myId: myNewId } });
   };
 
   const handleLoginSubmit = (e) => {
