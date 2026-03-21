@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const apiFetch = async (path, options = {}) => {
   if (!API_URL) return null;
@@ -9,7 +9,8 @@ const apiFetch = async (path, options = {}) => {
     });
     if (!res.ok) return null;
     return await res.json();
-  } catch {
+  } catch (err) {
+    console.error(`API fetch error on ${path}:`, err);
     return null;
   }
 };

@@ -23,10 +23,8 @@ const mockPlayersDB = [
 
 const AdminPage = () => {
   const navigate = useNavigate();
-  const [playersBySet, setPlayersBySet] = useState(() => {
-    const saved = localStorage.getItem('auctionPlayers');
-    return saved ? JSON.parse(saved) : { marquee: [], set1: [], set2: [], set3: [], set4: [] };
-  });
+  const [playersBySet, setPlayersBySet] = useState({ marquee: [], set1: [], set2: [], set3: [], set4: [] });
+  const [isLoading, setIsLoading] = useState(true);
 
   const [expandedSet, setExpandedSet] = useState(null);
   const [addModalSet, setAddModalSet] = useState(null);
@@ -34,11 +32,40 @@ const AdminPage = () => {
   const [newPlayer, setNewPlayer] = useState({ name: '', category: 'Batsman', nationality: 'Indian' });
   const [suggestions, setSuggestions] = useState([]);
 
+  // 1. Fetch from Backend on Mount to avoid wiping out the database
   useEffect(() => {
-    localStorage.setItem('auctionPlayers', JSON.stringify(playersBySet));
-    // Sync to backend API for cross-device access
-    saveAuctionPlayers(playersBySet);
-  }, [playersBySet]);
+    const initData = async () => {
+      // First try to fetch from the newly created database backend
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auction-players`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.marquee) {
+            setPlayersBySet(data);
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("Could not fetch players from backend:", e);
+      }
+      
+      // Fallback to local storage if backend returns nothing or fails
+      const saved = localStorage.getItem('auctionPlayers');
+      if (saved) {
+        setPlayersBySet(JSON.parse(saved));
+      }
+      setIsLoading(false);
+    };
+    initData();
+  }, []);
+
+  // 2. Only sync to local storage automatically. Require MANUAL clicks to sync to database!
+  useEffect(() => {
+    if (!isLoading) {
+      localStorage.setItem('auctionPlayers', JSON.stringify(playersBySet));
+    }
+  }, [playersBySet, isLoading]);
 
   const toggleSet = (setId) => {
     setExpandedSet(expandedSet === setId ? null : setId);

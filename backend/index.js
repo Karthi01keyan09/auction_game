@@ -1,13 +1,61 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
+const { open } = require('sqlite');
+const mongoose = require('mongoose');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const DB_FILE = path.join(__dirname, 'database.json');
+const PLAYERS_DB_FILE = path.join(__dirname, 'players.db');
 
-// ── Database Helper ──────────────────────────────────────────────
+let playersDb; // SQLite
+let PlayerModel; // MongoDB
+
+const isMongoConfigured = !!process.env.MONGO_URI;
+
+// ── Database Initializations ───────────────────────────────────────
+if (isMongoConfigured) {
+  mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('✅ Connected to MongoDB permanently for players database.'))
+    .catch(err => console.error('MongoDB connection error:', err));
+    
+  const playerSchema = new mongoose.Schema({
+    id: String,
+    setName: String,
+    name: String,
+    category: String,
+    nationality: String,
+    basePrice: String
+  });
+  PlayerModel = mongoose.model('Player', playerSchema);
+} else {
+  // Initialize SQLite for players as fallback
+  const initPlayersDB = async () => {
+    playersDb = await open({
+      filename: PLAYERS_DB_FILE,
+      driver: sqlite3.Database
+    });
+
+    await playersDb.exec(`
+      CREATE TABLE IF NOT EXISTS players (
+        id TEXT PRIMARY KEY,
+        setName TEXT,
+        name TEXT,
+        category TEXT,
+        nationality TEXT,
+        basePrice TEXT
+      )
+    `);
+    console.log('⚠️ MONGO_URI not found. Using local SQLite database as fallback.');
+  };
+  initPlayersDB().catch(console.error);
+}
+
+// ── JSON Database Helper for Room State ───────────────────────────
 const readDB = () => {
   try {
     if (fs.existsSync(DB_FILE)) {
@@ -17,7 +65,7 @@ const readDB = () => {
   } catch (err) {
     console.error("Error reading database:", err);
   }
-  return { rooms: {}, auctionPlayers: { global: null }, auctionStates: {}, auctionStarted: {} };
+  return { rooms: {}, auctionStates: {}, auctionStarted: {} };
 };
 
 const writeDB = (data) => {
@@ -28,9 +76,9 @@ const writeDB = (data) => {
   }
 };
 
-// Initialize DB file if missing
+// Initialize JSON DB file if missing
 if (!fs.existsSync(DB_FILE)) {
-  writeDB({ rooms: {}, auctionPlayers: { global: null }, auctionStates: {}, auctionStarted: {} });
+  writeDB({ rooms: {}, auctionStates: {}, auctionStarted: {} });
 }
 
 // ── Middleware ──────────────────────────────────────────────────
@@ -38,7 +86,7 @@ app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
 app.get('/', (req, res) => {
-  res.json({ status: 'IPL Auction Game API with JSON DB is running!' });
+  res.json({ status: 'IPL Auction Game API is running!' });
 });
 
 // ── Room Endpoints ──────────────────────────────────────────────
@@ -76,20 +124,98 @@ app.post('/api/rooms/:roomId/join', (req, res) => {
   res.json({ success: true, participants: db.rooms[roomId].participants });
 });
 
-// ── Auction Players (Admin) ─────────────────────────────────────
-app.get('/api/auction-players', (req, res) => {
-  const db = readDB();
-  const players = db.auctionPlayers.global;
-  if (!players) return res.status(404).json({ error: 'No players configured' });
-  res.json(players);
+// ── Auction Players (Separate Cloud/SQLite Database) ─────────────
+app.get('/api/auction-players', async (req, res) => {
+  try {
+    const playersBySet = { marquee: [], set1: [], set2: [], set3: [], set4: [] };
+
+    if (isMongoConfigured) {
+      // MongoDB approach: Fetch all and group, or aggregate with $sample
+      // Using an aggregation pipeline to group and randomly sort
+      const players = await PlayerModel.aggregate([{ $sample: { size: 1000 } }]);
+      players.forEach(p => {
+        if (playersBySet[p.setName]) {
+          playersBySet[p.setName].push(p);
+        }
+      });
+    } else {
+      // SQLite approach: ORDER BY RANDOM()
+      const rows = await playersDb.all('SELECT * FROM players ORDER BY RANDOM()');
+      rows.forEach(row => {
+        const p = {
+          id: row.id,
+          name: row.name,
+          category: row.category,
+          nationality: row.nationality,
+          basePrice: row.basePrice
+        };
+        if (playersBySet[row.setName]) {
+          playersBySet[row.setName].push(p);
+        }
+      });
+    }
+
+    res.json(playersBySet);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error fetching players' });
+  }
 });
 
-app.post('/api/auction-players', (req, res) => {
+app.post('/api/auction-players', async (req, res) => {
   const { playersBySet } = req.body;
-  const db = readDB();
-  db.auctionPlayers.global = playersBySet;
-  writeDB(db);
-  res.json({ success: true });
+  
+  if (!playersBySet) return res.status(400).json({ error: "No players provided" });
+
+  try {
+    if (isMongoConfigured) {
+      // MongoDB
+      await PlayerModel.deleteMany({}); // Wipe old configurations
+      const insertQueue = [];
+      for (const [setName, players] of Object.entries(playersBySet)) {
+        if (Array.isArray(players)) {
+          for (const p of players) {
+            insertQueue.push({
+              id: p.id || Math.random().toString(36).substr(2, 9),
+              setName,
+              name: p.name,
+              category: p.category,
+              nationality: p.nationality,
+              basePrice: p.basePrice
+            });
+          }
+        }
+      }
+      if (insertQueue.length > 0) {
+         await PlayerModel.insertMany(insertQueue);
+      }
+    } else {
+      // SQLite
+      await playersDb.exec('BEGIN TRANSACTION');
+      await playersDb.run('DELETE FROM players');
+      
+      const stmt = await playersDb.prepare(
+        'INSERT INTO players (id, setName, name, category, nationality, basePrice) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+
+      for (const [setName, players] of Object.entries(playersBySet)) {
+        if (Array.isArray(players)) {
+          for (const p of players) {
+            await stmt.run(p.id || Math.random().toString(36).substr(2, 9), setName, p.name, p.category, p.nationality, p.basePrice);
+          }
+        }
+      }
+      
+      await stmt.finalize();
+      await playersDb.exec('COMMIT');
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    if (!isMongoConfigured && playersDb) await playersDb.exec('ROLLBACK');
+    res.status(500).json({ error: 'Failed to save players' });
+  }
 });
 
 // ── Auction State ───────────────────────────────────────────────
@@ -121,4 +247,5 @@ app.post('/api/auction-started/:roomId', (req, res) => {
   res.json({ success: true });
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT} with DB support`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
