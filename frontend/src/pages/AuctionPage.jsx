@@ -129,7 +129,7 @@ const AuctionPage = () => {
       }
     };
 
-    const interval = setInterval(pollState, 1500);
+    const interval = setInterval(pollState, 500); // 500ms sync for rapid multi-user bidding
     return () => clearInterval(interval);
   }, [roomId]);
 
@@ -225,15 +225,20 @@ const AuctionPage = () => {
       notification = { type: 'unsold', playerName: cp.name };
     }
 
-    // Show notification for 3 seconds, then proceed
     const showAndProceed = (nextUpdates) => {
       updateSyncState({ ...nextUpdates, notification, isPaused: true });
       setTimeout(() => {
         if (isHost) {
-          // Clear notification and unpause
-          updateSyncState({ ...nextUpdates, notification: null, isPaused: false });
+          // Check if this was the last player
+          const nextIdx = nextUpdates.currentPlayerIdx !== undefined ? nextUpdates.currentPlayerIdx : auctionState.currentPlayerIdx + 1;
+          if (nextIdx < unauctionedList.length) {
+            updateSyncState({ ...nextUpdates, notification: null, isPaused: false });
+          } else {
+            // Once sold notification is done for last player, show final complete message!
+            updateSyncState({ purchasedLog: newLog, isFinished: true, notification: { type: 'finished' } });
+          }
         }
-      }, 3000);
+      }, 3000); // Give 3s to read the sold/unsold message
     };
 
     const nextIdx = auctionState.currentPlayerIdx + 1;
@@ -246,7 +251,11 @@ const AuctionPage = () => {
         expirationTime: Date.now() + (auctionState.timerDuration * 1000)
       });
     } else {
-      updateSyncState({ purchasedLog: newLog, isFinished: true, expirationTime: Date.now(), isPaused: true, notification });
+      showAndProceed({
+        purchasedLog: newLog,
+        currentPlayerIdx: nextIdx,
+        isPaused: true
+      });
     }
   };
 
@@ -270,6 +279,7 @@ const AuctionPage = () => {
   const handleFinish = () => {
     const confirmation = window.confirm("Are you sure you want to forcibly end the auction completely?");
     if (confirmation) {
+      // First show the notification, then finish to allow rendering the message
       updateSyncState({ isFinished: true, isPaused: true, notification: { type: 'finished' } });
     }
   };
@@ -312,20 +322,18 @@ const AuctionPage = () => {
      });
   };
 
-  // Redirect all clients when auction is finished
+  // Redirect all clients when auction is finished AND the notification has completed
   useEffect(() => {
     if (auctionState.isFinished) {
-      const notif = auctionState.notification;
-      // Give 3 seconds to show the final message before redirecting
-      const delay = notif ? 3000 : 500;
+      // Show the 'Auction Complete' notification for 3.5 seconds to let the host process it.
       const timer = setTimeout(() => {
         navigate(`/auction-complete/${roomId}`, { 
           state: { purchasedLog: auctionState.purchasedLog, participants, myId, isHostUser: isHost } 
         });
-      }, delay);
+      }, 3500); 
       return () => clearTimeout(timer);
     }
-  }, [auctionState.isFinished, auctionState.notification, navigate, roomId, participants, myId, isHost]);
+  }, [auctionState.isFinished, navigate, roomId, participants, myId, isHost, auctionState.purchasedLog]);
 
   if (unauctionedList.length === 0) return <div className="landing-wrapper"><div className="glass-card"><h2 className="title">No players in DB</h2></div></div>;
 

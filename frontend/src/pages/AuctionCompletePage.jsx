@@ -61,12 +61,13 @@ const AuctionCompletePage = () => {
     let prompt = `You are an expert IPL cricket analyst. Analyze and rank these auction teams based on STRICT rules and player quality.
 
 VALIDATION RULES (violations result in disqualification):
-1. A team MUST have at least 1 Wicketkeeper.
-2. A team MUST have at least 3 Bowlers.
-3. A team CANNOT have more than 4 Foreign players.
+1. A team MUST have a total of AT LEAST 11 players.
+2. A team MUST have AT LEAST 4 Foreign players.
+3. A team MUST have AT LEAST 3 Bowlers.
+4. A team MUST have AT LEAST 2 All Rounders.
 
 After checking eligibility, rank valid teams from 1st to 3rd based on:
-- Player quality & current form (use real cricket knowledge about these players)
+- Player quality, real-world stats, and current form (use deeply accurate cricket knowledge about these specific players)
 - Team balance (batting depth, bowling variety, all-rounders)
 - Value for money spent
 - Overall squad strength
@@ -146,12 +147,14 @@ Respond ONLY with valid JSON in this exact format:
       // ── Rule checks ──
       const wk = players.filter(p => p.category === 'Wicketkeeper');
       const bowlers = players.filter(p => p.category === 'Bowler');
+      const allRounders = players.filter(p => p.category === 'All Rounder');
       const foreign = players.filter(p => (p.nationality || '').toLowerCase() === 'foreign');
 
       const violations = [];
-      if (wk.length < 1) violations.push('No Wicketkeeper in squad');
+      if (players.length < 11) violations.push(`Only ${players.length} players — minimum 11 required`);
+      if (foreign.length < 4) violations.push(`Only ${foreign.length} Foreign players — minimum 4 required`);
       if (bowlers.length < 3) violations.push(`Only ${bowlers.length} Bowler(s) — minimum 3 required`);
-      if (foreign.length > 4) violations.push(`${foreign.length} Foreign players — maximum 4 allowed`);
+      if (allRounders.length < 2) violations.push(`Only ${allRounders.length} All Rounder(s) — minimum 2 required`);
 
       if (violations.length > 0) {
         disqualified.push({ ownerName: stat.name, teamName: t?.name || '', reason: violations.join('; ') });
