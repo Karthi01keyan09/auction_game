@@ -10,7 +10,8 @@ const setsData = [
   { id: 'set4', name: 'Set - 4', limit: 40, basePrice: '30 L' }
 ];
 
-const mockPlayersDB = [
+// Fallback local suggestions if DB has no players yet
+const FALLBACK_PLAYERS = [
   { name: 'Virat Kohli', category: 'Batsman', nationality: 'Indian' },
   { name: 'MS Dhoni', category: 'Wicketkeeper', nationality: 'Indian' },
   { name: 'Rashid Khan', category: 'Bowler', nationality: 'Foreign' },
@@ -25,6 +26,8 @@ const AdminPage = () => {
   const navigate = useNavigate();
   const [playersBySet, setPlayersBySet] = useState({ marquee: [], set1: [], set2: [], set3: [], set4: [] });
   const [isLoading, setIsLoading] = useState(true);
+  // ALL players from DB (flat list) used as autocomplete source
+  const [allPlayersDB, setAllPlayersDB] = useState(FALLBACK_PLAYERS);
 
   const [expandedSet, setExpandedSet] = useState(null);
   const [addModalSet, setAddModalSet] = useState(null);
@@ -35,26 +38,41 @@ const AdminPage = () => {
   // 1. Fetch from Backend on Mount to avoid wiping out the database
   useEffect(() => {
     const initData = async () => {
-      // First try to fetch from the newly created database backend
       try {
         const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auction-players`);
         if (res.ok) {
           const data = await res.json();
-          if (data && data.marquee) {
-            setPlayersBySet(data);
+          // Build a flat list of all players from DB for autocomplete suggestions
+          const validSetIds = ['marquee', 'set1', 'set2', 'set3', 'set4'];
+          const flat = [];
+          validSetIds.forEach(key => {
+            if (Array.isArray(data[key])) data[key].forEach(p => flat.push(p));
+          });
+          // Also include any unassigned players from DB
+          if (Array.isArray(data.unassigned)) data.unassigned.forEach(p => flat.push(p));
+
+          // Merge with local fallback so suggestions always have content
+          const dbNames = new Set(flat.map(p => p.name.toLowerCase()));
+          const merged = [...flat, ...FALLBACK_PLAYERS.filter(p => !dbNames.has(p.name.toLowerCase()))];
+          setAllPlayersDB(merged);
+
+          // Only populate the sets if there's actual set data
+          const hasData = validSetIds.some(k => data[k]?.length > 0);
+          if (hasData) {
+            const cleanSets = {};
+            validSetIds.forEach(k => { cleanSets[k] = data[k] || []; });
+            setPlayersBySet(cleanSets);
             setIsLoading(false);
             return;
           }
         }
       } catch (e) {
-        console.error("Could not fetch players from backend:", e);
+        console.error('Could not fetch players from backend:', e);
       }
-      
-      // Fallback to local storage if backend returns nothing or fails
+
+      // Fallback to localStorage if backend has nothing or fails
       const saved = localStorage.getItem('auctionPlayers');
-      if (saved) {
-        setPlayersBySet(JSON.parse(saved));
-      }
+      if (saved) setPlayersBySet(JSON.parse(saved));
       setIsLoading(false);
     };
     initData();
@@ -80,9 +98,11 @@ const AdminPage = () => {
 
   const handleNameChange = (val) => {
     setNewPlayer({ ...newPlayer, name: val });
-    if (val.length > 2) {
-      const filtered = mockPlayersDB.filter(p => p.name.toLowerCase().includes(val.toLowerCase()));
-      setSuggestions(filtered);
+    if (val.length > 1) {
+      // Search from the live DB-sourced list (includes all players stored in MongoDB)
+      const lower = val.toLowerCase();
+      const filtered = allPlayersDB.filter(p => p.name.toLowerCase().includes(lower));
+      setSuggestions(filtered.slice(0, 8)); // cap at 8 suggestions
     } else {
       setSuggestions([]);
     }

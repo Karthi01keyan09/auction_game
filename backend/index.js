@@ -132,15 +132,16 @@ app.post('/api/rooms/:roomId/join', (req, res) => {
 // ── Auction Players (Separate Cloud/SQLite Database) ─────────────
 app.get('/api/auction-players', async (req, res) => {
   try {
-    const playersBySet = { marquee: [], set1: [], set2: [], set3: [], set4: [] };
+    const playersBySet = { marquee: [], set1: [], set2: [], set3: [], set4: [], unassigned: [] };
 
     if (isMongoConfigured) {
-      // MongoDB approach: Fetch all and group, or aggregate with $sample
-      // Using an aggregation pipeline to group and randomly sort
+      // MongoDB approach: Fetch all and group
       const players = await PlayerModel.aggregate([{ $sample: { size: 1000 } }]);
       players.forEach(p => {
-        if (playersBySet[p.setName]) {
+        if (p.setName && playersBySet[p.setName]) {
           playersBySet[p.setName].push(p);
+        } else {
+          playersBySet.unassigned.push(p);
         }
       });
     } else {
@@ -154,8 +155,10 @@ app.get('/api/auction-players', async (req, res) => {
           nationality: row.nationality,
           basePrice: row.basePrice
         };
-        if (playersBySet[row.setName]) {
+        if (row.setName && playersBySet[row.setName]) {
           playersBySet[row.setName].push(p);
+        } else {
+          playersBySet.unassigned.push(p);
         }
       });
     }
