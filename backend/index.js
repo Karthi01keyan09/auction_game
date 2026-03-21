@@ -3,8 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const sqlite3 = require('sqlite3').verbose();
-const { open } = require('sqlite');
 const mongoose = require('mongoose');
 
 const app = express();
@@ -35,24 +33,31 @@ if (isMongoConfigured) {
 } else {
   // Initialize SQLite for players as fallback
   const initPlayersDB = async () => {
-    playersDb = await open({
-      filename: PLAYERS_DB_FILE,
-      driver: sqlite3.Database
-    });
+    try {
+      const sqlite3 = require('sqlite3').verbose();
+      const { open } = require('sqlite');
+      
+      playersDb = await open({
+        filename: PLAYERS_DB_FILE,
+        driver: sqlite3.Database
+      });
 
-    await playersDb.exec(`
-      CREATE TABLE IF NOT EXISTS players (
-        id TEXT PRIMARY KEY,
-        setName TEXT,
-        name TEXT,
-        category TEXT,
-        nationality TEXT,
-        basePrice TEXT
-      )
-    `);
-    console.log('⚠️ MONGO_URI not found. Using local SQLite database as fallback.');
+      await playersDb.exec(`
+        CREATE TABLE IF NOT EXISTS players (
+          id TEXT PRIMARY KEY,
+          setName TEXT,
+          name TEXT,
+          category TEXT,
+          nationality TEXT,
+          basePrice TEXT
+        )
+      `);
+      console.log('⚠️ MONGO_URI not found. Using local SQLite database as fallback.');
+    } catch (err) {
+      console.error('Failed to initialize local SQLite database (this is expected on some cloud hosts without native binaries). Set MONGO_URI to use MongoDB instead.', err);
+    }
   };
-  initPlayersDB().catch(console.error);
+  initPlayersDB();
 }
 
 // ── JSON Database Helper for Room State ───────────────────────────
