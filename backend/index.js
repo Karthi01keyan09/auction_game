@@ -135,8 +135,8 @@ app.get('/api/auction-players', async (req, res) => {
     const playersBySet = { marquee: [], set1: [], set2: [], set3: [], set4: [], unassigned: [] };
 
     if (isMongoConfigured) {
-      // MongoDB approach: Fetch all and group
-      const players = await PlayerModel.aggregate([{ $sample: { size: 1000 } }]);
+      // Use .find() (not $sample) to guarantee no duplicates
+      const players = await PlayerModel.find({}).lean();
       players.forEach(p => {
         if (p.setName && playersBySet[p.setName]) {
           playersBySet[p.setName].push(p);
@@ -145,11 +145,12 @@ app.get('/api/auction-players', async (req, res) => {
         }
       });
     } else {
-      // SQLite approach: ORDER BY RANDOM()
-      const rows = await playersDb.all('SELECT * FROM players ORDER BY RANDOM()');
+      // SQLite approach (no ORDER BY RANDOM to avoid randomization causing missed setName)
+      const rows = await playersDb.all('SELECT * FROM players');
       rows.forEach(row => {
         const p = {
           id: row.id,
+          setName: row.setName,
           name: row.name,
           category: row.category,
           nationality: row.nationality,

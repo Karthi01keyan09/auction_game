@@ -32,6 +32,7 @@ const AuctionPage = () => {
 
   const [participants, setParticipants] = useState([]);
   const [unauctionedList, setUnauctionedList] = useState([]);
+  const [isLoading, setIsLoading] = useState(true); // loading guard to prevent premature 'no players' screen
   
   // The Single Sync State Object
   const [auctionState, setAuctionState] = useState({
@@ -50,6 +51,8 @@ const AuctionPage = () => {
   const [timeLeft, setTimeLeft] = useState(15);
   const audioCtxRef = useRef(null);
   const lastBeepTime = useRef(0);
+  // Guard to prevent double-firing of handleTimeoutSold inside the timer interval
+  const soldFiredRef = useRef(false);
   const isHost = participants.find(p => p.id === myId)?.isHost || false;
 
   const [expandedTeamId, setExpandedTeamId] = useState(null);
@@ -57,6 +60,8 @@ const AuctionPage = () => {
   // Initial Sync from Room and Admin (API + fallback)
   useEffect(() => {
     const fetchInitialData = async () => {
+      setIsLoading(true);
+
       // 1. Fetch Room Participants
       const apiRoom = await getRoom(roomId);
       if (apiRoom && apiRoom.participants) {
@@ -66,10 +71,10 @@ const AuctionPage = () => {
         if (pData) setParticipants(JSON.parse(pData).participants);
       }
 
-      // 2. Fetch Auction Players
+      // 2. Fetch Auction Players (with deduplication by player id)
       let flat = [];
       const apiPlayers = await getAuctionPlayers();
-      if (apiPlayers && apiPlayers.marquee) {
+      if (apiPlayers) {
         const order = ['marquee', 'set1', 'set2', 'set3', 'set4'];
         order.forEach(s => flat = [...flat, ...(apiPlayers[s] || [])]);
       } else {
@@ -80,6 +85,14 @@ const AuctionPage = () => {
           order.forEach(s => flat = [...flat, ...(parsed[s] || [])]);
         }
       }
+      // Deduplicate players by id to prevent repeats (MongoDB $sample can return duplicates)
+      const seen = new Set();
+      flat = flat.filter(p => {
+        const key = p.id || p.name;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       setUnauctionedList(flat);
 
       // 3. Init or Fetch Auction State
@@ -108,6 +121,8 @@ const AuctionPage = () => {
           setAuctionState(initSt);
         }
       }
+
+      setIsLoading(false);
     };
 
     fetchInitialData();
@@ -187,11 +202,14 @@ const AuctionPage = () => {
 
       if (secondsLeft <= 0) {
         setTimeLeft(0);
-        if (isHost && remainingBytes <= 0 && remainingBytes > -1500) { 
-           handleTimeoutSold();
+        // soldFiredRef prevents double-firing: only fire once per player transition
+        if (isHost && remainingBytes <= 0 && !soldFiredRef.current) {
+          soldFiredRef.current = true;
+          handleTimeoutSold();
         }
       } else {
         setTimeLeft(secondsLeft);
+        soldFiredRef.current = false; // reset guard when timer is running
       }
     }, 100);
 
@@ -204,6 +222,14 @@ const AuctionPage = () => {
     const remainingPurse = 12000 - amountSpent;
     return { ...part, bought, amountSpent, remainingPurse };
   });
+
+  // Helper to detect the set boundary: returns the setName of a player in the flat list
+  const getSetName = (idx) => {
+    if (!unauctionedList[idx]) return null;
+    const p = unauctionedList[idx];
+    // setName is stored on each player object from the API
+    return p.setName || null;
+  };
 
   const handleTimeoutSold = () => {
     const cp = unauctionedList[auctionState.currentPlayerIdx];
@@ -225,24 +251,45 @@ const AuctionPage = () => {
       notification = { type: 'unsold', playerName: cp.name };
     }
 
+    const nextIdx = auctionState.currentPlayerIdx + 1;
+    const isLastPlayer = nextIdx >= unauctionedList.length;
+
+    // Detect set boundary: if the next player belongs to a different set, show 'set over' message
+    const currentSetName = getSetName(auctionState.currentPlayerIdx);
+    const nextSetName = getSetName(nextIdx);
+    const isSetBoundary = !isLastPlayer && currentSetName && nextSetName && currentSetName !== nextSetName;
+
     const showAndProceed = (nextUpdates) => {
+      // Show sold/unsold notification first
       updateSyncState({ ...nextUpdates, notification, isPaused: true });
+
       setTimeout(() => {
-        if (isHost) {
-          // Check if this was the last player
-          const nextIdx = nextUpdates.currentPlayerIdx !== undefined ? nextUpdates.currentPlayerIdx : auctionState.currentPlayerIdx + 1;
-          if (nextIdx < unauctionedList.length) {
-            updateSyncState({ ...nextUpdates, notification: null, isPaused: false });
-          } else {
-            // Once sold notification is done for last player, show final complete message!
-            updateSyncState({ purchasedLog: newLog, isFinished: true, notification: { type: 'finished' } });
-          }
+        if (!isHost) return;
+
+        if (isLastPlayer) {
+          // Auction is completely done
+          updateSyncState({ purchasedLog: newLog, isFinished: true, notification: { type: 'finished' } });
+        } else if (isSetBoundary) {
+          // Show 'set over' message between sets
+          const setLabel = currentSetName.charAt(0).toUpperCase() + currentSetName.slice(1);
+          updateSyncState({
+            ...nextUpdates,
+            notification: { type: 'setOver', setName: setLabel },
+            isPaused: true
+          });
+          setTimeout(() => {
+            if (isHost) {
+              updateSyncState({ ...nextUpdates, notification: null, isPaused: false });
+            }
+          }, 3000);
+        } else {
+          // Regular progression to next player
+          updateSyncState({ ...nextUpdates, notification: null, isPaused: false });
         }
       }, 3000); // Give 3s to read the sold/unsold message
     };
 
-    const nextIdx = auctionState.currentPlayerIdx + 1;
-    if (nextIdx < unauctionedList.length) {
+    if (!isLastPlayer) {
       showAndProceed({
         purchasedLog: newLog,
         currentPlayerIdx: nextIdx,
@@ -307,10 +354,24 @@ const AuctionPage = () => {
       return;
     }
 
+    // Smart timer reset based on when the bid was placed:
+    // - Bid placed with > 10s remaining  → reset to full timerDuration
+    // - Bid placed with 5s < time ≤ 10s  → reset to 10s
+    // - Bid placed with 0s < time ≤ 5s   → reset to 5s
+    const currentSecondsLeft = Math.ceil((auctionState.expirationTime - Date.now()) / 1000);
+    let resetSeconds;
+    if (currentSecondsLeft > 10) {
+      resetSeconds = auctionState.timerDuration; // full reset
+    } else if (currentSecondsLeft > 5) {
+      resetSeconds = 10;
+    } else {
+      resetSeconds = 5;
+    }
+
     updateSyncState({
       currentBidLakhs: nextAmount,
       currentBidderId: myId,
-      expirationTime: Date.now() + (auctionState.timerDuration * 1000)
+      expirationTime: Date.now() + (resetSeconds * 1000)
     });
   };
 
@@ -322,20 +383,35 @@ const AuctionPage = () => {
      });
   };
 
-  // Redirect all clients when auction is finished AND the notification has completed
+  // Redirect all clients instantly when auction is finished
   useEffect(() => {
     if (auctionState.isFinished) {
-      // Show the 'Auction Complete' notification for 3.5 seconds to let the host process it.
-      const timer = setTimeout(() => {
-        navigate(`/auction-complete/${roomId}`, { 
-          state: { purchasedLog: auctionState.purchasedLog, participants, myId, isHostUser: isHost } 
-        });
-      }, 3500); 
-      return () => clearTimeout(timer);
+      // Navigate immediately - no delay needed
+      navigate(`/auction-complete/${roomId}`, { 
+        state: { purchasedLog: auctionState.purchasedLog, participants, myId, isHostUser: isHost } 
+      });
     }
   }, [auctionState.isFinished, navigate, roomId, participants, myId, isHost, auctionState.purchasedLog]);
 
-  if (unauctionedList.length === 0) return <div className="landing-wrapper"><div className="glass-card"><h2 className="title">No players in DB</h2></div></div>;
+  // Show loading spinner during initial async data fetch (not a permanent 'no players' error)
+  if (isLoading) return (
+    <div className="landing-wrapper">
+      <div className="glass-card" style={{ textAlign: 'center' }}>
+        <div className="loading-spinner" style={{ margin: '0 auto 1rem' }}></div>
+        <h2 className="title">Loading Auction...</h2>
+        <p style={{ color: 'var(--text-muted)' }}>Fetching players and auction state</p>
+      </div>
+    </div>
+  );
+
+  if (unauctionedList.length === 0) return (
+    <div className="landing-wrapper">
+      <div className="glass-card">
+        <h2 className="title">No Players Found</h2>
+        <p style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '0.5rem' }}>Please ask the admin to add players before starting the auction.</p>
+      </div>
+    </div>
+  );
 
   const currentPlayer = unauctionedList[auctionState.currentPlayerIdx];
   const currentBidderStats = teamStats.find(t => t.id === auctionState.currentBidderId);
@@ -367,6 +443,14 @@ const AuctionPage = () => {
               <p className="notif-label">UNSOLD</p>
             </div>
           )}
+          {auctionState.notification.type === 'setOver' && (
+            <div className="notif-card set-over">
+              <div className="notif-icon">✅</div>
+              <h2 className="notif-player">Set is Over!</h2>
+              <p className="notif-label" style={{ textTransform: 'capitalize' }}>{auctionState.notification.setName} has ended</p>
+              <p className="notif-label" style={{ fontSize: '0.9rem', opacity: 0.7 }}>Next set begins shortly...</p>
+            </div>
+          )}
           {auctionState.notification.type === 'finished' && (
             <div className="notif-card finished">
               <div className="notif-icon">🏆</div>
@@ -388,7 +472,7 @@ const AuctionPage = () => {
             <div className="timer-box">
               {isHost ? (
                   <>
-                    <select className="timer-select" value={auctionState.timerDuration} onChange={(e) => handleTimerSelect(Number(e.target.value))} disabled={auctionState.isPaused || (timeLeft > 0 && timeLeft < auctionState.timerDuration)}>
+                    <select className="timer-select" value={auctionState.timerDuration} onChange={(e) => handleTimerSelect(Number(e.target.value))} disabled={auctionState.isPaused}>
                       <option value={5}>5s</option>
                       <option value={10}>10s</option>
                       <option value={15}>15s</option>

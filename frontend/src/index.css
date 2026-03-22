@@ -1020,6 +1020,25 @@ body {
   border: 2px solid #f59e0b;
 }
 
+.notif-card.set-over {
+  background: linear-gradient(135deg, rgba(6,182,212,0.2), rgba(8,145,178,0.1));
+  border: 2px solid #06b6d4;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+  width: 52px;
+  height: 52px;
+  border: 5px solid rgba(255,255,255,0.1);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.85s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 .notif-icon {
   font-size: 4rem;
   margin-bottom: 1rem;
